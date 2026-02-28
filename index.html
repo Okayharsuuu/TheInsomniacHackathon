@@ -14,17 +14,16 @@
     <meta name="apple-mobile-web-app-title" content="FocusFuel">
     <link rel="apple-touch-icon" href="icon-512.png">
     <meta name="theme-color" content="#10b981">
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 
 <body>
     <div class="app-container">
         <!-- Header -->
-        <header class="app-header">
+        <header class="app-header" id="main-header" style="display: none;">
             <div class="logo">
                 <i class="fa-solid fa-leaf"></i> FocusFuel
             </div>
-            <div class="points-badge">
+            <div class="points-badge" id="main-points-badge">
                 <i class="fa-solid fa-star"></i> <span id="header-points">0</span>
             </div>
         </header>
@@ -38,13 +37,34 @@
                     <div class="logo-large">
                         <i class="fa-solid fa-leaf"></i> FocusFuel
                     </div>
-                    <h2 id="auth-title">Welcome Back</h2>
-                    <p id="auth-subtitle">Login to sync your focus progress.</p>
+                    <h2 id="auth-title">Welcome</h2>
+                    <p id="auth-subtitle">Create an account to start tracking.</p>
 
-                    <button id="btn-google-login" class="btn primary full-width"
-                        style="margin-top: 1rem; display: flex; align-items: center; justify-content: center; gap: 10px;">
-                        <i class="fa-brands fa-google"></i> Login with Google
-                    </button>
+                    <div id="auth-form">
+                        <div class="input-group" id="name-group">
+                            <label>Full Name</label>
+                            <input type="text" id="auth-name" placeholder="John Doe">
+                        </div>
+                        <div class="input-group">
+                            <label>Username</label>
+                            <input type="text" id="auth-username" placeholder="focus_master">
+                        </div>
+                        <div class="input-group" id="email-group">
+                            <label>Email</label>
+                            <input type="email" id="auth-email" placeholder="john@example.com">
+                        </div>
+                        <div class="input-group">
+                            <label>Password</label>
+                            <input type="password" id="auth-password" placeholder="••••••••">
+                        </div>
+                        <button id="btn-auth-submit" class="btn primary full-width" style="margin-top: 1rem;">Sign
+                            Up</button>
+                    </div>
+
+                    <p class="auth-toggle">
+                        <span id="auth-toggle-text">Already have an account?</span>
+                        <a href="#" id="link-toggle-auth">Login here</a>
+                    </p>
                 </div>
             </section>
 
@@ -162,7 +182,8 @@
                     <div class="avatar">
                         <i class="fa-solid fa-user-astronaut"></i>
                     </div>
-                    <h2 id="prof-username">Focus Champion</h2>
+                    <h2 id="prof-display-name">Focus Champion</h2>
+                    <p id="prof-display-username">@username</p>
                     <p>Level 5</p>
                 </div>
 
@@ -201,7 +222,7 @@
         </main>
 
         <!-- Bottom Navigation -->
-        <nav class="bottom-nav">
+        <nav class="bottom-nav" id="main-nav" style="display: none;">
             <button class="nav-item active" data-target="view-dashboard">
                 <i class="fa-solid fa-house"></i>
                 <span>Home</span>
@@ -230,7 +251,6 @@
         </div>
     </div>
 
-    <script src="supabaseConfig.js"></script>
     <script src="app.js"></script>
 </body>
 

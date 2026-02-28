@@ -1,11 +1,8 @@
 document.addEventListener('DOMContentLoaded', () => {
     // ---- State Management ----
-    // Initialize Supabase Client
-    const supabaseClient = window.supabase;
-
     const defaultState = {
+        name: '',
         username: '',
-        region: 'Global',
         isAuthenticated: false,
         goalMinutes: 180, // 3 hours
         focusMinutes: 0,
@@ -21,11 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let state = JSON.parse(localStorage.getItem('focusFuelState')) || defaultState;
 
-    // Migration: Ensure new fields exist and old ones are converted
-    if (state.currentUsageMinutes !== undefined) {
-        state.focusMinutes = state.currentUsageMinutes;
-        delete state.currentUsageMinutes;
-    }
+    // Migration logic if needed
     state = { ...defaultState, ...state };
 
     // Badges definitions
@@ -37,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
 
     let currentRegion = 'Global';
+    let isRegisterMode = true; // Default to Sign Up
 
     // ---- DOM Elements ----
     const els = {
@@ -60,23 +54,29 @@ document.addEventListener('DOMContentLoaded', () => {
         toastMessage: document.getElementById('toast-message'),
         regionTabs: document.getElementById('region-tabs'),
         leaderboardList: document.getElementById('leaderboard-list'),
-        // Profile Elements
-        userNameInput: document.getElementById('user-name-input'),
-        userRegionSelect: document.getElementById('user-region-select'),
-        btnSaveProfile: document.getElementById('btn-save-profile'),
-        // Tracking Elements
-        trackingStatus: document.getElementById('tracking-status'),
         // Auth Elements
         authView: document.getElementById('view-auth'),
-        btnGoogleLogin: document.getElementById('btn-google-login'),
-        btnLogout: document.getElementById('btn-logout'),
-        btnInstallPWA: document.getElementById('btn-install-pwa'),
-        toggleWakeLock: document.getElementById('toggle-wake-lock'),
-        profUsername: document.getElementById('prof-username'),
-        bottomNav: document.querySelector('.bottom-nav'),
+        authTitle: document.getElementById('auth-title'),
+        authSubtitle: document.getElementById('auth-subtitle'),
+        authName: document.getElementById('auth-name'),
+        authUsername: document.getElementById('auth-username'),
+        authEmail: document.getElementById('auth-email'),
+        authPassword: document.getElementById('auth-password'),
+        btnAuthSubmit: document.getElementById('btn-auth-submit'),
+        linkToggleAuth: document.getElementById('link-toggle-auth'),
+        authToggleText: document.getElementById('auth-toggle-text'),
+        nameGroup: document.getElementById('name-group'),
+        emailGroup: document.getElementById('email-group'),
+        // Layout Elements
+        mainHeader: document.getElementById('main-header'),
+        mainNav: document.getElementById('main-nav'),
+        pointsBadge: document.getElementById('main-points-badge'),
+        // Profile Elements
+        profDisplayName: document.getElementById('prof-display-name'),
+        profDisplayUsername: document.getElementById('prof-display-username'),
+        btnLogout: document.getElementById('btn-logout')
     };
 
-    let isRegisterMode = false;
     let deferredPrompt;
     let wakeLock = null;
 
@@ -101,43 +101,31 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!state.username || !state.isAuthenticated) return;
 
         try {
-            const { data, error } = await supabaseClient
-                .from('users')
-                .upsert({
-                    username: state.username, // Using Google Display Name or fallback
-                    region: state.region,
+            const res = await fetch('/api/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: state.username,
                     total_points: state.totalPoints,
                     longest_streak: state.longestStreak,
-                    days_met: state.daysMet,
-                    avatar: 'fa-user-astronaut',
-                    last_login: new Date().toISOString()
-                }, { onConflict: 'username' });
-
-            if (error) throw error;
-            console.log('Sync result: Success');
+                    days_met: state.daysMet
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
         } catch (err) {
             console.error('Failed to sync data:', err);
         }
     }
 
-    async function fetchLeaderboard(region) {
+    async function fetchLeaderboard() {
         if (!els.leaderboardList) return;
-
         els.leaderboardList.innerHTML = '<div class="loading">Loading leaderboard...</div>';
 
         try {
-            let query = supabaseClient
-                .from('users')
-                .select('username, region, total_points, longest_streak, avatar')
-                .order('total_points', { ascending: false })
-                .limit(50);
-
-            if (region !== 'Global') {
-                query = query.eq('region', region);
-            }
-
-            const { data, error } = await query;
-            if (error) throw error;
+            const res = await fetch('/api/leaderboard');
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
             renderLeaderboard(data);
         } catch (err) {
             console.error('Failed to fetch leaderboard:', err);
@@ -151,117 +139,92 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${h}h ${m.toString().padStart(2, '0')}m`;
     }
 
-    // Update the circular progress bar
     function updateCircleProgress() {
         const percent = Math.min((state.focusMinutes / state.goalMinutes) * 100, 100);
-        // Circle circumference is 283
         const offset = Math.max(283 - (percent / 100) * 283, 0);
-        els.progressCircle.style.strokeDashoffset = offset;
-
-        if (percent >= 100) {
-            els.progressCircle.style.stroke = 'var(--primary-color)';
-        } else if (percent >= 50) {
-            els.progressCircle.style.stroke = 'var(--secondary-color)';
-        } else {
-            els.progressCircle.style.stroke = 'var(--warning-color)';
-        }
+        if (els.progressCircle) els.progressCircle.style.strokeDashoffset = offset;
     }
 
     function awardPoints(minutes) {
         if (!minutes || minutes <= 0) return;
 
         const prevMins = state.focusMinutes;
-        state.focusMinutes += minutes;
+        const currentTotalMins = state.focusMinutes + minutes;
 
-        // Dynamic points: 1 per min normally, 5 per min if goal met
         let pointsEarned = 0;
 
-        // If the entire session is over the goal
+        // Logic: 1pt/min regular, 5pt/min post-goal
         if (prevMins >= state.goalMinutes) {
+            // Already past goal, all minutes are bonus
             pointsEarned = Math.floor(minutes * 5);
-        } 
-        // If the session crosses the goal threshold
-        else if (state.focusMinutes > state.goalMinutes) {
-            const normalMins = state.goalMinutes - prevMins;
-            const overMins = state.focusMinutes - state.goalMinutes;
-            pointsEarned = Math.floor((normalMins * 1) + (overMins * 5));
-        } 
-        // If the session is entirely under the goal
-        else {
+        } else if (currentTotalMins > state.goalMinutes) {
+            // Crossed the goal during this session
+            const regularMins = state.goalMinutes - prevMins;
+            const bonusMins = currentTotalMins - state.goalMinutes;
+            pointsEarned = Math.floor((regularMins * 1) + (bonusMins * 5));
+        } else {
+            // Still below goal
             pointsEarned = Math.floor(minutes * 1);
         }
 
+        state.focusMinutes = currentTotalMins;
         state.totalPoints += pointsEarned;
+
         saveState();
-        updateUI();
-
-        const bonus = pointsEarned > (minutes * 1) ? ' (5x Bonus Points!)' : '';
-        showToast('Focus Session', `You earned ${pointsEarned} points for focusing${bonus}.`);
-
-        // Sync with backend immediately if possible
         syncUserData();
+
+        const bonusMsg = pointsEarned > minutes ? ' (5x Bonus Points!)' : '';
+        showToast('Focus Session', `You earned ${pointsEarned} points${bonusMsg}.`);
     }
 
     function updateUI() {
         if (!state.isAuthenticated) {
             els.views.forEach(v => v.classList.remove('active'));
             els.authView.classList.add('active');
-            els.bottomNav.style.display = 'none';
+            if (els.mainHeader) els.mainHeader.style.display = 'none';
+            if (els.mainNav) els.mainNav.style.display = 'none';
             return;
         }
 
+        // Show layout elements
+        if (els.mainHeader) els.mainHeader.style.display = 'flex';
+        if (els.mainNav) els.mainNav.style.display = 'flex';
         els.authView.classList.remove('active');
-        els.bottomNav.style.display = 'flex';
 
-        // Headers
-        els.headerPoints.innerText = state.totalPoints;
+        // Update Headers
+        if (els.headerPoints) els.headerPoints.innerText = state.totalPoints;
 
         // Dashboard
-        els.timeSpentText.innerText = formatTime(state.focusMinutes);
-        els.timeGoalText.innerText = `Goal: ${formatTime(state.goalMinutes)}`;
-        els.currentStreak.innerText = `${state.currentStreak} Days`;
+        if (els.timeSpentText) els.timeSpentText.innerText = formatTime(state.focusMinutes);
+        if (els.timeGoalText) els.timeGoalText.innerText = `Goal: ${formatTime(state.goalMinutes)}`;
+        if (els.currentStreak) els.currentStreak.innerText = `${state.currentStreak} Days`;
         updateCircleProgress();
 
-        // Goals input
-        els.goalHours.value = Math.floor(state.goalMinutes / 60);
-        els.goalMinutes.value = state.goalMinutes % 60;
-
         // Profile
-        if (els.profUsername) els.profUsername.innerText = state.username || 'Focus Champion';
-        els.profTotalPoints.innerText = state.totalPoints;
-        els.profLongestStreak.innerText = `${state.longestStreak} Days`;
-        els.profDaysMet.innerText = state.daysMet;
-
-        // Profile Inputs
-        if (els.userNameInput) els.userNameInput.value = state.username || '';
-        if (els.userRegionSelect) els.userRegionSelect.value = state.region || 'Global';
-
-        // Tracking Status
-        if (els.trackingStatus) {
-            els.trackingStatus.innerText = document.hidden ? 'Focusing...' : 'Ready to Focus';
-        }
+        if (els.profDisplayName) els.profDisplayName.innerText = state.name || 'Focus Champion';
+        if (els.profDisplayUsername) els.profDisplayUsername.innerText = `@${state.username}`;
+        if (els.profTotalPoints) els.profTotalPoints.innerText = state.totalPoints;
+        if (els.profLongestStreak) els.profLongestStreak.innerText = `${state.longestStreak} Days`;
+        if (els.profDaysMet) els.profDaysMet.innerText = state.daysMet;
 
         renderBadges();
     }
 
-    function renderLeaderboard(leaderboardData) {
+    function renderLeaderboard(data) {
         if (!els.leaderboardList) return;
-
-        const list = leaderboardData || [];
-
-        if (list.length === 0) {
-            els.leaderboardList.innerHTML = '<div class="empty">No entries in this region yet.</div>';
+        if (data.length === 0) {
+            els.leaderboardList.innerHTML = '<div class="empty">No ranks found yet.</div>';
             return;
         }
 
-        els.leaderboardList.innerHTML = list.map((user, index) => {
+        els.leaderboardList.innerHTML = data.map((user, index) => {
             const isMe = user.username === state.username;
             return `
                 <div class="rank-item ${isMe ? 'is-me' : ''}">
                     <div class="rank-number">${index + 1}</div>
                     <div class="rank-avatar"><i class="fa-solid ${user.avatar || 'fa-user-astronaut'}"></i></div>
                     <div class="rank-info">
-                        <span class="rank-name">${user.username === state.username ? 'You' : user.username}</span>
+                        <span class="rank-name">${isMe ? 'You' : user.name}</span>
                         <span class="rank-pts">${user.total_points} pts</span>
                     </div>
                 </div>
@@ -270,6 +233,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderBadges() {
+        if (!els.badgesContainer) return;
         els.badgesContainer.innerHTML = badgeDefs.map(b => `
             <div class="badge-item ${state.badges.includes(b.id) ? 'unlocked' : ''}">
                 <div class="badge-icon"><i class="fa-solid ${b.icon}"></i></div>
@@ -279,126 +243,94 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showToast(title, message, type = 'success') {
+        if (!els.toast) return;
         els.toastTitle.innerText = title;
         els.toastMessage.innerText = message;
-
-        const icon = els.toast.querySelector('.toast-icon');
-        icon.style.background = type === 'success' ? 'var(--primary-color)' :
-            (type === 'warning' ? 'var(--warning-color)' : 'var(--danger-color)');
-        icon.innerHTML = type === 'success' ? '<i class="fa-solid fa-check"></i>' :
-            (type === 'warning' ? '<i class="fa-solid fa-exclamation"></i>' : '<i class="fa-solid fa-xmark"></i>');
-
-        els.toast.classList.add('show');
+        els.toast.className = `toast show ${type}`;
         setTimeout(() => els.toast.classList.remove('show'), 3500);
-    }
-
-    function triggerPointsBump() {
-        const badge = document.querySelector('.points-badge');
-        badge.classList.add('bump');
-        setTimeout(() => badge.classList.remove('bump'), 300);
-    }
-
-    function checkBadges() {
-        if (state.daysMet >= 1 && !state.badges.includes('first_goal')) state.badges.push('first_goal');
-        if (state.longestStreak >= 3 && !state.badges.includes('streak_3')) state.badges.push('streak_3');
-        if (state.longestStreak >= 7 && !state.badges.includes('streak_7')) state.badges.push('streak_7');
     }
 
     // ---- Event Listeners ----
 
-    // Automatic Focus Tracking logic
-    document.addEventListener('visibilitychange', () => {
-        if (document.hidden) {
-            state.lastHiddenAt = Date.now();
+    // Auth Submit
+    els.btnAuthSubmit.addEventListener('click', async () => {
+        const payload = {
+            username: els.authUsername.value.trim(),
+            password: els.authPassword.value.trim()
+        };
+
+        if (isRegisterMode) {
+            payload.name = els.authName.value.trim();
+            payload.email = els.authEmail.value.trim();
+            if (!payload.name || !payload.username || !payload.email || !payload.password) {
+                return showToast('Error', 'Please fill all fields', 'warning');
+            }
         } else {
-            let elapsedMins = 0;
-            if (state.lastHiddenAt) {
-                const elapsedMs = Date.now() - state.lastHiddenAt;
-                elapsedMins = elapsedMs / (1000 * 60);
-
-                awardPoints(elapsedMins);
-                state.lastHiddenAt = null;
-
-                checkDayRollover();
-                saveState();
+            if (!payload.username || !payload.password) {
+                return showToast('Error', 'Username and password required', 'warning');
             }
-            if (elapsedMins >= 1) {
-                showToast('Focus Session Ended', `You earned ${Math.floor(elapsedMins)} mins of focus time.`);
-            }
-            // Resume wake lock if tab becomes visible again
-            requestWakeLock();
         }
-    });
 
-    // Supabase Auth and State Check
-    supabaseClient.auth.onAuthStateChange(async (event, session) => {
-        if (session) {
-            // User is logged in
-            state.isAuthenticated = true;
-            
-            // Extract Google Name if exists
-            if (session.user.user_metadata && session.user.user_metadata.full_name) {
-                state.username = session.user.user_metadata.full_name;
-            } else if (!state.username) {
-                state.username = session.user.email.split('@')[0];
-            }
+        const endpoint = isRegisterMode ? '/api/register' : '/api/login';
+        els.btnAuthSubmit.disabled = true;
+        els.btnAuthSubmit.innerText = 'Processing...';
 
-            // Sync user data / fetch latest state
-            // For a robust app, you would fetch from Supabase to merge state.
-            // For now, we sync localStorage up to Supabase to seed the account.
-            saveState();
-            await syncUserData();
+        try {
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
 
-            updateUI();
-            
-            // Switch to dashboard view automatically
-            document.querySelector('[data-target="view-dashboard"]').click();
-        } else {
-            // User is logged out
-            state.isAuthenticated = false;
-            updateUI();
-        }
-    });
+            if (!res.ok) throw new Error(data.error || 'Request failed');
 
-    if (els.btnGoogleLogin) {
-        els.btnGoogleLogin.addEventListener('click', async () => {
-            els.btnGoogleLogin.disabled = true;
-            els.btnGoogleLogin.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Connecting...';
-            try {
-                const { error } = await supabaseClient.auth.signInWithOAuth({
-                    provider: 'google',
-                    options: {
-                        redirectTo: window.location.origin
-                    }
-                });
-                if (error) throw error;
-            } catch (err) {
-                showToast('Login Error', err.message, 'danger');
-                els.btnGoogleLogin.disabled = false;
-                els.btnGoogleLogin.innerHTML = '<i class="fa-brands fa-google"></i> Login with Google';
-            }
-        });
-    }
-
-    if (els.btnLogout) {
-        els.btnLogout.addEventListener('click', async () => {
-            const { error } = await supabaseClient.auth.signOut();
-            if (error) {
-                showToast('Logout Error', error.message, 'danger');
+            if (isRegisterMode) {
+                showToast('Success', 'Account created! Please login.', 'success');
+                toggleAuthMode();
             } else {
-                state.isAuthenticated = false;
+                state.isAuthenticated = true;
+                state.username = data.user.username;
+                state.name = data.user.name;
+                state.totalPoints = data.user.total_points;
+                state.longestStreak = data.user.longest_streak;
+                state.daysMet = data.user.days_met;
                 saveState();
-                location.reload(); // Hard reset UI
+
+                // Navigate to dashboard
+                document.querySelector('[data-target="view-dashboard"]').click();
+                showToast('Welcome back', `Logged in as ${state.name}`, 'success');
             }
-        });
+        } catch (err) {
+            showToast('Auth Error', err.message, 'danger');
+        } finally {
+            els.btnAuthSubmit.disabled = false;
+            els.btnAuthSubmit.innerText = isRegisterMode ? 'Sign Up' : 'Login';
+        }
+    });
+
+    // Toggle Sign Up / Login
+    function toggleAuthMode() {
+        isRegisterMode = !isRegisterMode;
+        els.authTitle.innerText = isRegisterMode ? 'Welcome' : 'Welcome Back';
+        els.authSubtitle.innerText = isRegisterMode ? 'Create an account to start tracking.' : 'Login to sync your focus progress.';
+        els.btnAuthSubmit.innerText = isRegisterMode ? 'Sign Up' : 'Login';
+        els.authToggleText.innerText = isRegisterMode ? 'Already have an account?' : 'Need an account?';
+        els.linkToggleAuth.innerText = isRegisterMode ? 'Login here' : 'Sign up here';
+        els.nameGroup.style.display = isRegisterMode ? 'block' : 'none';
+        els.emailGroup.style.display = isRegisterMode ? 'block' : 'none';
     }
+
+    els.linkToggleAuth.addEventListener('click', (e) => {
+        e.preventDefault();
+        toggleAuthMode();
+    });
 
     // Navigation
     els.navItems.forEach(item => {
         item.addEventListener('click', () => {
             if (!state.isAuthenticated) return;
-            const currentItem = Array.from(els.navItems).find(n => n.classList.contains('active'));
-            if (currentItem) currentItem.classList.remove('active');
+            els.navItems.forEach(n => n.classList.remove('active'));
             item.classList.add('active');
 
             const targetId = item.getAttribute('data-target');
@@ -407,211 +339,77 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (v.id === targetId) v.classList.add('active');
             });
 
-            if (targetId === 'view-leaderboard') {
-                fetchLeaderboard(currentRegion);
-            }
+            if (targetId === 'view-leaderboard') fetchLeaderboard();
         });
     });
 
-    // Region Tabs
-    if (els.regionTabs) {
-        els.regionTabs.addEventListener('click', (e) => {
-            if (e.target.classList.contains('tab-btn')) {
-                els.regionTabs.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-                e.target.classList.add('active');
-                currentRegion = e.target.getAttribute('data-region');
-                fetchLeaderboard(currentRegion);
+    // Focus Tracking
+    document.addEventListener('visibilitychange', () => {
+        if (!state.isAuthenticated) return;
+
+        if (document.hidden) {
+            state.lastHiddenAt = Date.now();
+            saveState();
+        } else {
+            if (state.lastHiddenAt) {
+                const elapsedMs = Date.now() - state.lastHiddenAt;
+                const elapsedMins = elapsedMs / (1000 * 60);
+                if (elapsedMins > 0.1) { // Min 6 seconds to count
+                    awardPoints(elapsedMins);
+                }
+                state.lastHiddenAt = null;
+                checkDayRollover();
+                saveState();
             }
+        }
+    });
+
+    // Logout
+    if (els.btnLogout) {
+        els.btnLogout.addEventListener('click', () => {
+            state = { ...defaultState };
+            localStorage.removeItem('focusFuelState');
+            location.reload();
         });
     }
 
     // Save Goal
-    els.btnSaveGoal.addEventListener('click', () => {
-        const h = parseInt(els.goalHours.value) || 0;
-        const m = parseInt(els.goalMinutes.value) || 0;
-
-        // Enforce 2h min and 23h 59m max
-        const totalMin = (h * 60) + m;
-        if (totalMin < 120) {
-            showToast('Invalid Goal', 'Minimum daily goal is 2 hours', 'danger');
-            return;
-        }
-        if (h > 23 || (h === 23 && m > 59)) {
-            showToast('Invalid Goal', 'Maximum daily goal is 23h 59m', 'danger');
-            return;
-        }
-
-        state.goalMinutes = totalMin;
-        saveState();
-        showToast('Goal Updated', `Your daily focus target is now ${formatTime(state.goalMinutes)}.`);
-    });
-
-    // Save Profile
-    if (els.btnSaveProfile) {
-        els.btnSaveProfile.addEventListener('click', async () => {
-            const newName = els.userNameInput.value.trim();
-            const newRegion = els.userRegionSelect.value;
-
-            if (!newName) {
-                showToast('Error', 'Please enter a username', 'danger');
-                return;
-            }
-
-            state.username = newName;
-            state.region = newRegion;
+    if (els.btnSaveGoal) {
+        els.btnSaveGoal.addEventListener('click', () => {
+            const h = parseInt(els.goalHours.value) || 0;
+            const m = parseInt(els.goalMinutes.value) || 0;
+            state.goalMinutes = (h * 60) + m;
             saveState();
-            await syncUserData();
-            showToast('Profile Saved', 'Your identity has been updated and synced.');
+            showToast('Goal Updated', `Target: ${formatTime(state.goalMinutes)}`, 'success');
         });
     }
 
-    // Process Gamification at End of Day (Automatic)
     async function processEndOfDay() {
-        let earnedPoints = 0;
-        let diff = state.focusMinutes - state.goalMinutes;
-        let message = '';
-        let type = 'success';
-
-        els.pointsToday.innerText = `+0`;
-
         if (state.focusMinutes >= state.goalMinutes) {
-            // Success! Met goal
             state.currentStreak++;
             state.daysMet++;
-
-            if (state.currentStreak > state.longestStreak) {
-                state.longestStreak = state.currentStreak;
-            }
-
-            earnedPoints += 10; // Base points
-            message = 'Daily goal met! +10 pts.';
-
-            // Bonus points for overachieving (30+ mins over)
-            if (diff >= 30) {
-                earnedPoints += 5;
-                message += ' +5 bonus pts for deep focus!';
-                if (!state.badges.includes('super_focus')) state.badges.push('super_focus');
-            }
-
-            // Streak Milestones
-            if (state.currentStreak === 3) {
-                earnedPoints += 20;
-                message += ' +20 pts (3-day streak!)';
-            } else if (state.currentStreak === 7) {
-                earnedPoints += 50;
-                message += ' +50 pts (7-day streak!)';
-            } else if (state.currentStreak === 30) {
-                earnedPoints += 200;
-                message += ' +200 pts (30-day streak!)';
-            }
-
-        } else if (state.focusMinutes >= state.goalMinutes - 5) {
-            // Grace Buffer (within 5 mins of goal)
-            message = 'Goal missed slightly. Streak saved by grace buffer. 0 pts.';
-            type = 'warning';
+            if (state.currentStreak > state.longestStreak) state.longestStreak = state.currentStreak;
         } else {
-            // Failure
             state.currentStreak = 0;
-            message = 'Focus goal missed. Streak reset.';
-            type = 'danger';
         }
-
-        // Apply
-        if (earnedPoints > 0) {
-            state.totalPoints += earnedPoints;
-            els.pointsToday.innerText = `+${earnedPoints}`;
-            triggerPointsBump();
-        }
-
-        checkBadges();
-
         await syncUserData();
-        console.log('Processed End of Day:', message);
-        showToast('Day Ended', message, type);
     }
 
-    // Initialization
+    // Init
     function init() {
-        checkDayRollover();
-
-        // Recovery: If we were hidden when last saved (e.g. refresh during focus)
-        if (state.lastHiddenAt) {
-            const elapsedMs = Date.now() - state.lastHiddenAt;
-            const elapsedMins = elapsedMs / (1000 * 60);
-            if (elapsedMins > 0) {
-                console.log(`Recovered ${elapsedMins.toFixed(2)} mins of focus.`);
-                awardPoints(elapsedMins);
+        if (state.isAuthenticated) {
+            // Restore from background if refreshed
+            if (state.lastHiddenAt) {
+                const elapsedMs = Date.now() - state.lastHiddenAt;
+                awardPoints(elapsedMs / (1000 * 60));
                 state.lastHiddenAt = null;
                 saveState();
             }
+            // Ensure first view is dashboard
+            const dashboardTab = document.querySelector('[data-target="view-dashboard"]');
+            if (dashboardTab) dashboardTab.click();
         }
-
         updateUI();
-        requestWakeLock();
-    }
-
-    // Wake Lock Logic
-    async function requestWakeLock() {
-        if (!state.isWakeLockEnabled || !('wakeLock' in navigator)) return;
-        try {
-            wakeLock = await navigator.wakeLock.request('screen');
-            console.log('Wake Lock is active');
-            wakeLock.addEventListener('release', () => {
-                console.log('Wake Lock was released');
-            });
-        } catch (err) {
-            console.error(`${err.name}, ${err.message}`);
-        }
-    }
-
-    if (els.toggleWakeLock) {
-        els.toggleWakeLock.checked = state.isWakeLockEnabled;
-        els.toggleWakeLock.addEventListener('change', (e) => {
-            state.isWakeLockEnabled = e.target.checked;
-            saveState();
-            if (state.isWakeLockEnabled) {
-                requestWakeLock();
-            } else if (wakeLock) {
-                wakeLock.release();
-                wakeLock = null;
-            }
-        });
-    }
-
-    // PWA Install Logic
-    window.addEventListener('beforeinstallprompt', (e) => {
-        e.preventDefault();
-        deferredPrompt = e;
-        if (els.btnInstallPWA) {
-            els.btnInstallPWA.style.display = 'block';
-        }
-    });
-
-    if (els.btnInstallPWA) {
-        els.btnInstallPWA.addEventListener('click', async () => {
-            if (!deferredPrompt) return;
-            deferredPrompt.prompt();
-            const { outcome } = await deferredPrompt.userChoice;
-            console.log(`User response to the install prompt: ${outcome}`);
-            deferredPrompt = null;
-            els.btnInstallPWA.style.display = 'none';
-        });
-    }
-
-    window.addEventListener('appinstalled', () => {
-        console.log('PWA was installed');
-        if (els.btnInstallPWA) {
-            els.btnInstallPWA.style.display = 'none';
-        }
-    });
-
-    // Service Worker Registration for PWA
-    if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-            navigator.serviceWorker.register('/service-worker.js')
-                .then(reg => console.log('Service Worker registered', reg))
-                .catch(err => console.error('Service Worker registration failed', err));
-        });
     }
 
     init();
