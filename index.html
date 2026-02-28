@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FocusFuel - Screen Time Rewards</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo">
+                <i class="fa-solid fa-leaf"></i> FocusFuel
+            </div>
+            <div class="points-badge">
+                <i class="fa-solid fa-star"></i> <span id="header-points">0</span>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="content-area">
+
+            <!-- Dashboard View -->
+            <section id="view-dashboard" class="view active">
+                <div class="glass-card greeting-card">
+                    <h2 id="greeting">Good Morning!</h2>
+                    <p>Stay focused and earn rewards today.</p>
+                </div>
+
+                <div class="glass-card progress-card">
+                    <h3>Today's Focus Time</h3>
+                    <div class="circular-progress">
+                        <svg viewBox="0 0 100 100">
+                            <circle class="progress-bg" cx="50" cy="50" r="45"></circle>
+                            <circle class="progress-bar" cx="50" cy="50" r="45" id="progress-circle"></circle>
+                        </svg>
+                        <div class="progress-text">
+                            <span id="time-spent" class="time-large">0h 00m</span>
+                            <span id="time-goal" class="goal-small">Goal: 3h 00m</span>
+                        </div>
+                    </div>
+                    <p class="focus-hint"><i class="fa-solid fa-moon"></i> Earn focus by turning off your screen</p>
+                </div>
+
+                <div class="stats-row">
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon"><i class="fa-solid fa-fire"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">Current Streak</span>
+                            <span class="stat-value" id="current-streak">0 Days</span>
+                        </div>
+                    </div>
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon"><i class="fa-solid fa-coins"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">Points Today</span>
+                            <span class="stat-value" id="points-today">+0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="focus-status-card glass-card">
+                    <h3>Tracking Status</h3>
+                    <div class="status-indicator">
+                        <div class="pulse-dot"></div>
+                        <span id="tracking-status">Ready to Focus</span>
+                    </div>
+                    <p class="demo-desc">Focus time is automatically earned when the app is in the background or screen
+                        is off.</p>
+                </div>
+            </section>
+
+            <!-- Goals View -->
+            <section id="view-goals" class="view">
+                <div class="glass-card">
+                    <h2>Set Your Daily Focus Goal</h2>
+                    <p class="subtitle">Higher goals challenge you to stay away from your screen longer and earn more
+                        points.</p>
+
+                    <div class="goal-input-container">
+                        <div class="time-input">
+                            <label>Hours</label>
+                            <input type="number" id="goal-hours" min="0" max="23" value="3">
+                        </div>
+                        <span class="colon">:</span>
+                        <div class="time-input">
+                            <label>Minutes</label>
+                            <input type="number" id="goal-minutes" min="0" max="59" step="5" value="0">
+                        </div>
+                    </div>
+
+                    <div class="grace-info">
+                        <i class="fa-solid fa-circle-info"></i>
+                        <p><strong>Focus Target:</strong> Reach this goal by keeping your screen off. Streak is saved if
+                            you are within 5 minutes of your target.</p>
+                    </div>
+
+                    <button id="btn-save-goal" class="btn primary full-width">Save Goal</button>
+                </div>
+            </section>
+
+            <!-- Leaderboard View -->
+            <section id="view-leaderboard" class="view">
+                <div class="glass-card">
+                    <h2>Region Leaderboard</h2>
+                    <p class="subtitle">See how your focus ranks against others.</p>
+
+                    <div class="region-tabs" id="region-tabs">
+                        <button class="tab-btn active" data-region="Global">Global</button>
+                        <button class="tab-btn" data-region="North America">NA</button>
+                        <button class="tab-btn" data-region="Europe">EU</button>
+                        <button class="tab-btn" data-region="Asia">Asia</button>
+                    </div>
+
+                    <div class="leaderboard-list" id="leaderboard-list">
+                        <!-- Ranks injected via JS -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Profile View -->
+            <section id="view-profile" class="view">
+                <div class="glass-card profile-card">
+                    <div class="avatar">
+                        <i class="fa-solid fa-user-astronaut"></i>
+                    </div>
+                    <h2>Focus Champion</h2>
+                    <p>Level 5</p>
+                </div>
+
+                <div class="glass-card stats-overview">
+                    <h3>Lifetime Stats</h3>
+                    <ul class="stats-list">
+                        <li>
+                            <span>Total Points</span>
+                            <strong id="prof-total-points">0</strong>
+                        </li>
+                        <li>
+                            <span>Longest Streak</span>
+                            <strong id="prof-longest-streak">0 Days</strong>
+                        </li>
+                        <li>
+                            <span>Total Days Met</span>
+                            <strong id="prof-days-met">0</strong>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="glass-card settings-card">
+                    <h3>Your Identity</h3>
+                    <div class="input-group">
+                        <label>Username</label>
+                        <input type="text" id="user-name-input" placeholder="Enter username...">
+                    </div>
+                    <div class="input-group">
+                        <label>Region</label>
+                        <select id="user-region-select">
+                            <option value="Global">Global</option>
+                            <option value="North America">North America</option>
+                            <option value="Europe">Europe</option>
+                            <option value="Asia">Asia</option>
+                        </select>
+                    </div>
+                    <button id="btn-save-profile" class="btn primary full-width">Save Profile</button>
+                </div>
+
+                <div class="glass-card badges-card">
+                    <h3>Badges</h3>
+                    <div class="badges-grid" id="badges-container">
+                        <!-- Badges will be generated by JS -->
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav">
+            <button class="nav-item active" data-target="view-dashboard">
+                <i class="fa-solid fa-house"></i>
+                <span>Home</span>
+            </button>
+            <button class="nav-item" data-target="view-goals">
+                <i class="fa-solid fa-bullseye"></i>
+                <span>Goal</span>
+            </button>
+            <button class="nav-item" data-target="view-leaderboard">
+                <i class="fa-solid fa-trophy"></i>
+                <span>Ranks</span>
+            </button>
+            <button class="nav-item" data-target="view-profile">
+                <i class="fa-solid fa-user"></i>
+                <span>Profile</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="toast">
+        <div class="toast-icon"><i class="fa-solid fa-bell"></i></div>
+        <div class="toast-content">
+            <h4 id="toast-title">Notification</h4>
+            <p id="toast-message">Message goes here</p>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
