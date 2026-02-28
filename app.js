@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
         isWakeLockEnabled: false,
         lastDate: new Date().toDateString(),
         lastHiddenAt: null,
+        pointsToday: 0,
         badges: []
     };
 
@@ -99,6 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await processEndOfDay();
             state.lastDate = today;
             state.focusMinutes = 0;
+            state.pointsToday = 0;
             saveState();
             showToast('New Day!', 'Your focus resets. Good luck today!', 'success');
         }
@@ -179,6 +181,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         state.focusMinutes = currentTotalMins;
         state.totalPoints += pointsEarned;
+        state.pointsToday += pointsEarned;
 
         saveState();
         syncUserData();
@@ -210,6 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (els.timeSpentText) els.timeSpentText.innerText = formatTime(state.focusMinutes);
         if (els.timeGoalText) els.timeGoalText.innerText = `Goal: ${formatTime(state.goalMinutes)}`;
         if (els.currentStreak) els.currentStreak.innerText = `${state.currentStreak} Days`;
+        if (els.pointsToday) els.pointsToday.innerText = `+${state.pointsToday}`;
         updateCircleProgress();
 
         // Profile
@@ -311,13 +315,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.isAuthenticated = true;
                 state.username = data.user.username;
                 state.name = data.user.name;
-                state.totalPoints = data.user.total_points;
-                state.longestStreak = data.user.longest_streak;
-                state.daysMet = data.user.days_met;
+                state.totalPoints = data.user.total_points || 0;
+                state.longestStreak = data.user.longest_streak || 0;
+                state.daysMet = data.user.days_met || 0;
+                state.currentStreak = data.user.current_streak || 0;
                 saveState();
 
                 // Navigate to dashboard
-                document.querySelector('[data-target="view-dashboard"]').click();
+                const dashboardTab = document.querySelector('[data-target="view-dashboard"]');
+                if (dashboardTab) dashboardTab.click();
                 showToast('Welcome back', `Logged in as ${state.name}`, 'success');
             }
         } catch (err) {
@@ -414,9 +420,29 @@ document.addEventListener('DOMContentLoaded', () => {
     // Save Goal
     if (els.btnSaveGoal) {
         els.btnSaveGoal.addEventListener('click', () => {
-            const h = parseInt(els.goalHours.value) || 0;
-            const m = parseInt(els.goalMinutes.value) || 0;
-            state.goalMinutes = (h * 60) + m;
+            let h = parseInt(els.goalHours.value) || 0;
+            let m = parseInt(els.goalMinutes.value) || 0;
+
+            // Enforce limits: Min 2h (120m), Max 23h 59m (1439m)
+            let totalMins = (h * 60) + m;
+
+            if (totalMins < 120) {
+                h = 2;
+                m = 0;
+                totalMins = 120;
+                els.goalHours.value = 2;
+                els.goalMinutes.value = 0;
+                showToast('Goal Adjusted', 'Minimum focus goal is 2 hours.', 'warning');
+            } else if (totalMins > 1439) {
+                h = 23;
+                m = 59;
+                totalMins = 1439;
+                els.goalHours.value = 23;
+                els.goalMinutes.value = 59;
+                showToast('Goal Adjusted', 'Maximum focus goal is 23h 59m.', 'warning');
+            }
+
+            state.goalMinutes = totalMins;
             saveState();
             showToast('Goal Updated', `Target: ${formatTime(state.goalMinutes)}`, 'success');
         });
