@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     // ---- State Management ----
-    const API_BASE_URL = window.location.origin + '/api';
-
+    // Initialize Supabase Client
+    const supabaseClient = window.supabase;
 
     const defaultState = {
         username: '',
@@ -68,16 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
         trackingStatus: document.getElementById('tracking-status'),
         // Auth Elements
         authView: document.getElementById('view-auth'),
-        authForm: document.getElementById('auth-form'),
-        authTitle: document.getElementById('auth-title'),
-        authSubtitle: document.getElementById('auth-subtitle'),
-        authUsername: document.getElementById('auth-username'),
-        authPassword: document.getElementById('auth-password'),
-        authRegion: document.getElementById('auth-region'),
-        regionGroup: document.getElementById('region-group'),
-        btnAuthSubmit: document.getElementById('btn-auth-submit'),
-        authToggleLink: document.getElementById('auth-toggle-link'),
-        authToggleText: document.getElementById('auth-toggle-text'),
+        btnGoogleLogin: document.getElementById('btn-google-login'),
         btnLogout: document.getElementById('btn-logout'),
         btnInstallPWA: document.getElementById('btn-install-pwa'),
         toggleWakeLock: document.getElementById('toggle-wake-lock'),
@@ -110,19 +101,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!state.username || !state.isAuthenticated) return;
 
         try {
-            const response = await fetch(`${API_BASE_URL}/users/sync`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    username: state.username,
-                    points: state.totalPoints,
-                    longestStreak: state.longestStreak,
-                    daysMet: state.daysMet,
-                    avatar: 'fa-user-astronaut'
-                })
-            });
-            const data = await response.json();
-            console.log('Sync result:', data);
+            const { data, error } = await supabaseClient
+                .from('users')
+                .upsert({
+                    username: state.username, // Using Google Display Name or fallback
+                    region: state.region,
+                    total_points: state.totalPoints,
+                    longest_streak: state.longestStreak,
+                    days_met: state.daysMet,
+                    avatar: 'fa-user-astronaut',
+                    last_login: new Date().toISOString()
+                }, { onConflict: 'username' });
+
+            if (error) throw error;
+            console.log('Sync result: Success');
         } catch (err) {
             console.error('Failed to sync data:', err);
         }
@@ -134,9 +126,19 @@ document.addEventListener('DOMContentLoaded', () => {
         els.leaderboardList.innerHTML = '<div class="loading">Loading leaderboard...</div>';
 
         try {
-            const response = await fetch(`${API_BASE_URL}/leaderboard?region=${region}`);
-            const data = await response.json();
-            renderLeaderboard(data.leaderboard);
+            let query = supabaseClient
+                .from('users')
+                .select('username, region, total_points, longest_streak, avatar')
+                .order('total_points', { ascending: false })
+                .limit(50);
+
+            if (region !== 'Global') {
+                query = query.eq('region', region);
+            }
+
+            const { data, error } = await query;
+            if (error) throw error;
+            renderLeaderboard(data);
         } catch (err) {
             console.error('Failed to fetch leaderboard:', err);
             els.leaderboardList.innerHTML = '<div class="error">Failed to load leaderboard.</div>';
@@ -168,19 +170,24 @@ document.addEventListener('DOMContentLoaded', () => {
     function awardPoints(minutes) {
         if (!minutes || minutes <= 0) return;
 
+        const prevMins = state.focusMinutes;
         state.focusMinutes += minutes;
 
         // Dynamic points: 1 per min normally, 5 per min if goal met
         let pointsEarned = 0;
-        // Total minutes BEFORE this addition
-        const prevMins = state.focusMinutes - minutes;
 
-        if (state.focusMinutes > state.goalMinutes) {
-            const overage = state.focusMinutes - state.goalMinutes; // Total over goal now
-            const newOverage = Math.min(overage, minutes); // How much of THIS session was over goal
-            const normalMinutes = minutes - newOverage;
-            pointsEarned = Math.floor((normalMinutes * 1) + (newOverage * 5));
-        } else {
+        // If the entire session is over the goal
+        if (prevMins >= state.goalMinutes) {
+            pointsEarned = Math.floor(minutes * 5);
+        } 
+        // If the session crosses the goal threshold
+        else if (state.focusMinutes > state.goalMinutes) {
+            const normalMins = state.goalMinutes - prevMins;
+            const overMins = state.focusMinutes - state.goalMinutes;
+            pointsEarned = Math.floor((normalMins * 1) + (overMins * 5));
+        } 
+        // If the session is entirely under the goal
+        else {
             pointsEarned = Math.floor(minutes * 1);
         }
 
@@ -323,72 +330,66 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Auth Event Listeners
-    if (els.authToggleLink) {
-        els.authToggleLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            isRegisterMode = !isRegisterMode;
-            els.authTitle.innerText = isRegisterMode ? 'Create Account' : 'Welcome Back';
-            els.authSubtitle.innerText = isRegisterMode ? 'Join FocusFuel to start tracking.' : 'Login to sync your focus progress.';
-            els.btnAuthSubmit.innerText = isRegisterMode ? 'Register' : 'Login';
-            els.authToggleText.innerText = isRegisterMode ? 'Already have an account?' : "Don't have an account?";
-            els.authToggleLink.innerText = isRegisterMode ? 'Login Now' : 'Register Now';
-            els.regionGroup.style.display = isRegisterMode ? 'block' : 'none';
-        });
-    }
+    // Supabase Auth and State Check
+    supabaseClient.auth.onAuthStateChange(async (event, session) => {
+        if (session) {
+            // User is logged in
+            state.isAuthenticated = true;
+            
+            // Extract Google Name if exists
+            if (session.user.user_metadata && session.user.user_metadata.full_name) {
+                state.username = session.user.user_metadata.full_name;
+            } else if (!state.username) {
+                state.username = session.user.email.split('@')[0];
+            }
 
-    if (els.authForm) {
-        els.authForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const username = els.authUsername.value.trim();
-            const password = els.authPassword.value;
-            const region = els.authRegion.value;
+            // Sync user data / fetch latest state
+            // For a robust app, you would fetch from Supabase to merge state.
+            // For now, we sync localStorage up to Supabase to seed the account.
+            saveState();
+            await syncUserData();
 
-            const endpoint = isRegisterMode ? '/auth/register' : '/auth/login';
-            const body = isRegisterMode ? { username, password, region } : { username, password };
+            updateUI();
+            
+            // Switch to dashboard view automatically
+            document.querySelector('[data-target="view-dashboard"]').click();
+        } else {
+            // User is logged out
+            state.isAuthenticated = false;
+            updateUI();
+        }
+    });
 
+    if (els.btnGoogleLogin) {
+        els.btnGoogleLogin.addEventListener('click', async () => {
+            els.btnGoogleLogin.disabled = true;
+            els.btnGoogleLogin.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Connecting...';
             try {
-                const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
-                });
-                const data = await response.json();
-
-                if (response.ok) {
-                    if (isRegisterMode) {
-                        showToast('Success', 'Account created! Please login.', 'success');
-                        isRegisterMode = false;
-                        els.authToggleLink.click();
-                    } else {
-                        state.username = data.user.username;
-                        state.region = data.user.region;
-                        state.totalPoints = data.user.total_points;
-                        state.longestStreak = data.user.longest_streak;
-                        state.daysMet = data.user.days_met;
-                        state.isAuthenticated = true;
-                        saveState();
-                        showToast('Welcome', `Glad to see you, ${state.username}!`);
-                        // Switch to dashboard
-                        document.querySelector('[data-target="view-dashboard"]').click();
+                const { error } = await supabaseClient.auth.signInWithOAuth({
+                    provider: 'google',
+                    options: {
+                        redirectTo: window.location.origin
                     }
-                } else {
-                    showToast('Auth Error', data.error || 'Something went wrong', 'danger');
-                }
+                });
+                if (error) throw error;
             } catch (err) {
-                console.error('Auth request failed:', err);
-                showToast('Error', 'Server connection failed', 'danger');
+                showToast('Login Error', err.message, 'danger');
+                els.btnGoogleLogin.disabled = false;
+                els.btnGoogleLogin.innerHTML = '<i class="fa-brands fa-google"></i> Login with Google';
             }
         });
     }
 
     if (els.btnLogout) {
-        els.btnLogout.addEventListener('click', () => {
-            state.isAuthenticated = false;
-            state.username = '';
-            // We keep goal settings and local points just in case, but primary data is in DB
-            saveState();
-            location.reload(); // Hard reset for safety
+        els.btnLogout.addEventListener('click', async () => {
+            const { error } = await supabaseClient.auth.signOut();
+            if (error) {
+                showToast('Logout Error', error.message, 'danger');
+            } else {
+                state.isAuthenticated = false;
+                saveState();
+                location.reload(); // Hard reset UI
+            }
         });
     }
 
