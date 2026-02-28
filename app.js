@@ -236,7 +236,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="rank-number">${index + 1}</div>
                     <div class="rank-avatar"><i class="fa-solid ${user.avatar || 'fa-user-astronaut'}"></i></div>
                     <div class="rank-info">
-                        <span class="rank-name">${isMe ? 'You' : user.name}</span>
+                        <span class="rank-name">${isMe ? 'You' : (user.name || user.username)}</span>
                         <span class="rank-pts">${user.total_points} pts</span>
                     </div>
                 </div>

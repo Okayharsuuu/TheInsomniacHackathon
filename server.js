@@ -32,6 +32,14 @@ const db = new sqlite3.Database(path.join(__dirname, 'focusfuel.db'), (err) => {
                 region TEXT DEFAULT 'Global',
                 last_login TEXT
             )`);
+
+            db.run(`ALTER TABLE users ADD COLUMN name TEXT DEFAULT 'Focus User'`, (err) => { });
+            db.run(`ALTER TABLE users ADD COLUMN region TEXT DEFAULT 'Global'`, (err) => { });
+            db.run(`ALTER TABLE users ADD COLUMN total_points INTEGER DEFAULT 0`, (err) => { });
+            db.run(`ALTER TABLE users ADD COLUMN longest_streak INTEGER DEFAULT 0`, (err) => { });
+            db.run(`ALTER TABLE users ADD COLUMN days_met INTEGER DEFAULT 0`, (err) => { });
+            db.run(`ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT 'fa-user-astronaut'`, (err) => { });
+            db.run(`ALTER TABLE users ADD COLUMN last_login TEXT`, (err) => { });
         });
     }
 });
