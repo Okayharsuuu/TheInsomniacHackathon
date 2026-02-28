@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentStreak: 0,
         longestStreak: 0,
         daysMet: 0,
+        isWakeLockEnabled: false,
         lastDate: new Date().toDateString(),
         lastHiddenAt: null,
         badges: []
@@ -79,11 +80,13 @@ document.addEventListener('DOMContentLoaded', () => {
         authToggleText: document.getElementById('auth-toggle-text'),
         btnLogout: document.getElementById('btn-logout'),
         btnInstallPWA: document.getElementById('btn-install-pwa'),
+        toggleWakeLock: document.getElementById('toggle-wake-lock'),
         bottomNav: document.querySelector('.bottom-nav'),
     };
 
     let isRegisterMode = false;
     let deferredPrompt;
+    let wakeLock = null;
 
     // ---- Core Functions ----
     function saveState() {
@@ -268,22 +271,23 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
             state.lastHiddenAt = Date.now();
-            saveState();
         } else {
+            let elapsedMins = 0;
             if (state.lastHiddenAt) {
                 const elapsedMs = Date.now() - state.lastHiddenAt;
-                const elapsedMins = elapsedMs / (1000 * 60);
+                elapsedMins = elapsedMs / (1000 * 60);
 
-                state.focusMinutes = (Number(state.focusMinutes) || 0) + elapsedMins;
+                updateProgress(elapsedMins);
                 state.lastHiddenAt = null;
 
                 checkDayRollover();
                 saveState();
-
-                if (elapsedMins >= 1) {
-                    showToast('Focus Session Ended', `You earned ${Math.floor(elapsedMins)} mins of focus time.`);
-                }
             }
+            if (elapsedMins >= 1) {
+                showToast('Focus Session Ended', `You earned ${Math.floor(elapsedMins)} mins of focus time.`);
+            }
+            // Resume wake lock if tab becomes visible again
+            requestWakeLock();
         }
     });
 
@@ -393,12 +397,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const h = parseInt(els.goalHours.value) || 0;
         const m = parseInt(els.goalMinutes.value) || 0;
 
-        if (h > 23 || (h === 23 && m > 59) || (h === 0 && m === 0)) {
-            showToast('Invalid Goal', 'Goal must be between 1 min and 23h 59m', 'danger');
+        // Enforce 2h min and 23h 59m max
+        const totalMin = (h * 60) + m;
+        if (totalMin < 120) {
+            showToast('Invalid Goal', 'Minimum daily goal is 2 hours', 'danger');
+            return;
+        }
+        if (h > 23 || (h === 23 && m > 59)) {
+            showToast('Invalid Goal', 'Maximum daily goal is 23h 59m', 'danger');
             return;
         }
 
-        state.goalMinutes = (h * 60) + m;
+        state.goalMinutes = totalMin;
         saveState();
         showToast('Goal Updated', `Your daily focus target is now ${formatTime(state.goalMinutes)}.`);
     });
@@ -497,13 +507,42 @@ document.addEventListener('DOMContentLoaded', () => {
             const elapsedMins = elapsedMs / (1000 * 60);
             if (elapsedMins > 0) {
                 console.log(`Recovered ${elapsedMins.toFixed(2)} mins of focus.`);
-                state.focusMinutes = (Number(state.focusMinutes) || 0) + elapsedMins;
+                updateProgress(elapsedMins);
                 state.lastHiddenAt = null;
                 saveState();
             }
         }
 
         updateUI();
+        requestWakeLock();
+    }
+
+    // Wake Lock Logic
+    async function requestWakeLock() {
+        if (!state.isWakeLockEnabled || !('wakeLock' in navigator)) return;
+        try {
+            wakeLock = await navigator.wakeLock.request('screen');
+            console.log('Wake Lock is active');
+            wakeLock.addEventListener('release', () => {
+                console.log('Wake Lock was released');
+            });
+        } catch (err) {
+            console.error(`${err.name}, ${err.message}`);
+        }
+    }
+
+    if (els.toggleWakeLock) {
+        els.toggleWakeLock.checked = state.isWakeLockEnabled;
+        els.toggleWakeLock.addEventListener('change', (e) => {
+            state.isWakeLockEnabled = e.target.checked;
+            saveState();
+            if (state.isWakeLockEnabled) {
+                requestWakeLock();
+            } else if (wakeLock) {
+                wakeLock.release();
+                wakeLock = null;
+            }
+        });
     }
 
     // PWA Install Logic
