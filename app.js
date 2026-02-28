@@ -81,6 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnLogout: document.getElementById('btn-logout'),
         btnInstallPWA: document.getElementById('btn-install-pwa'),
         toggleWakeLock: document.getElementById('toggle-wake-lock'),
+        profUsername: document.getElementById('prof-username'),
         bottomNav: document.querySelector('.bottom-nav'),
     };
 
@@ -149,7 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Update the circular progress bar
-    function updateProgress() {
+    function updateCircleProgress() {
         const percent = Math.min((state.focusMinutes / state.goalMinutes) * 100, 100);
         // Circle circumference is 283
         const offset = Math.max(283 - (percent / 100) * 283, 0);
@@ -162,6 +163,36 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             els.progressCircle.style.stroke = 'var(--warning-color)';
         }
+    }
+
+    function awardPoints(minutes) {
+        if (!minutes || minutes <= 0) return;
+
+        state.focusMinutes += minutes;
+
+        // Dynamic points: 1 per min normally, 5 per min if goal met
+        let pointsEarned = 0;
+        // Total minutes BEFORE this addition
+        const prevMins = state.focusMinutes - minutes;
+
+        if (state.focusMinutes > state.goalMinutes) {
+            const overage = state.focusMinutes - state.goalMinutes; // Total over goal now
+            const newOverage = Math.min(overage, minutes); // How much of THIS session was over goal
+            const normalMinutes = minutes - newOverage;
+            pointsEarned = Math.floor((normalMinutes * 1) + (newOverage * 5));
+        } else {
+            pointsEarned = Math.floor(minutes * 1);
+        }
+
+        state.totalPoints += pointsEarned;
+        saveState();
+        updateUI();
+
+        const bonus = pointsEarned > (minutes * 1) ? ' (5x Bonus Points!)' : '';
+        showToast('Focus Session', `You earned ${pointsEarned} points for focusing${bonus}.`);
+
+        // Sync with backend immediately if possible
+        syncUserData();
     }
 
     function updateUI() {
@@ -182,13 +213,14 @@ document.addEventListener('DOMContentLoaded', () => {
         els.timeSpentText.innerText = formatTime(state.focusMinutes);
         els.timeGoalText.innerText = `Goal: ${formatTime(state.goalMinutes)}`;
         els.currentStreak.innerText = `${state.currentStreak} Days`;
-        updateProgress();
+        updateCircleProgress();
 
         // Goals input
         els.goalHours.value = Math.floor(state.goalMinutes / 60);
         els.goalMinutes.value = state.goalMinutes % 60;
 
         // Profile
+        if (els.profUsername) els.profUsername.innerText = state.username || 'Focus Champion';
         els.profTotalPoints.innerText = state.totalPoints;
         els.profLongestStreak.innerText = `${state.longestStreak} Days`;
         els.profDaysMet.innerText = state.daysMet;
@@ -277,7 +309,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const elapsedMs = Date.now() - state.lastHiddenAt;
                 elapsedMins = elapsedMs / (1000 * 60);
 
-                updateProgress(elapsedMins);
+                awardPoints(elapsedMins);
                 state.lastHiddenAt = null;
 
                 checkDayRollover();
@@ -507,7 +539,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const elapsedMins = elapsedMs / (1000 * 60);
             if (elapsedMins > 0) {
                 console.log(`Recovered ${elapsedMins.toFixed(2)} mins of focus.`);
-                updateProgress(elapsedMins);
+                awardPoints(elapsedMins);
                 state.lastHiddenAt = null;
                 saveState();
             }
