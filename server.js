@@ -10,16 +10,56 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
 
+// API: Register User
+app.post('/api/auth/register', (req, res) => {
+    const { username, password, region } = req.body;
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password are required' });
+    }
+
+    const sql = 'INSERT INTO users (username, password, region) VALUES (?, ?, ?)';
+    db.run(sql, [username, password, region || 'Global'], function (err) {
+        if (err) {
+            if (err.message.includes('UNIQUE constraint failed')) {
+                return res.status(400).json({ error: 'Username already exists' });
+            }
+            return res.status(500).json({ error: err.message });
+        }
+        res.status(201).json({ message: 'User registered successfully', id: this.lastID });
+    });
+});
+
+// API: Login User
+app.post('/api/auth/login', (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password are required' });
+    }
+
+    const sql = 'SELECT * FROM users WHERE username = ? AND password = ?';
+    db.get(sql, [username, password], (err, user) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!user) return res.status(401).json({ error: 'Invalid username or password' });
+
+        // Update last login
+        db.run('UPDATE users SET last_login = ? WHERE id = ?', [new Date().toISOString(), user.id]);
+
+        // Return user data (excluding password)
+        const { password: _, ...userData } = user;
+        res.json({ message: 'Login successful', user: userData });
+    });
+});
+
 // API: Get Leaderboard by Region
 app.get('/api/leaderboard', (req, res) => {
     // If region is 'Global', we fetch across all regions.
     const region = req.query.region || 'Global';
 
-    let sql = 'SELECT * FROM users ORDER BY total_points DESC LIMIT 50';
+    let sql = 'SELECT id, username, region, total_points, longest_streak, avatar FROM users ORDER BY total_points DESC LIMIT 50';
     let params = [];
 
     if (region !== 'Global') {
-        sql = 'SELECT * FROM users WHERE region = ? ORDER BY total_points DESC LIMIT 50';
+        sql = 'SELECT id, username, region, total_points, longest_streak, avatar FROM users WHERE region = ? ORDER BY total_points DESC LIMIT 50';
         params = [region];
     }
 
@@ -34,45 +74,30 @@ app.get('/api/leaderboard', (req, res) => {
 
 // API: Sync/Update User Score
 app.post('/api/users/sync', (req, res) => {
-    // Expected Payload: { username, region, points, longestStreak, avatar }
-    const { username, region, points, longestStreak, avatar } = req.body;
+    const { username, points, longestStreak, daysMet, avatar } = req.body;
 
     if (!username) {
         return res.status(400).json({ error: 'Username is required' });
     }
 
-    // Upsert logic: IF user exists, update score (only if higher than current) and streak. ELSE create user.
-    db.get('SELECT id, total_points, longest_streak FROM users WHERE username = ?', [username], (err, row) => {
+    // Since users must be logged in now, we only UPDATE.
+    const sql = `UPDATE users SET 
+                    total_points = ?,
+                    longest_streak = ?,
+                    days_met = ?,
+                    avatar = ?
+                 WHERE username = ?`;
+
+    db.run(sql, [points, longestStreak, daysMet, avatar, username], function (err) {
         if (err) return res.status(500).json({ error: err.message });
-
-        if (row) {
-            // User exists, Update points (adding new points) and replace longest streak if new one is higher
-            const sql = `UPDATE users SET 
-                            total_points = ?,
-                            longest_streak = ?,
-                            region = ?,
-                            avatar = ?
-                         WHERE id = ?`;
-
-            const newStreak = Math.max(row.longest_streak, longestStreak || 0);
-
-            db.run(sql, [points, newStreak, region, avatar, row.id], function (err) {
-                if (err) return res.status(500).json({ error: err.message });
-                res.json({ message: 'User updated successfully', points: points, streak: newStreak });
-            });
-        } else {
-            // New User
-            const sql = 'INSERT INTO users (username, region, total_points, longest_streak, avatar) VALUES (?, ?, ?, ?, ?)';
-            db.run(sql, [username, region || 'Global', points || 0, longestStreak || 0, avatar || 'fa-user-astronaut'], function (err) {
-                if (err) return res.status(500).json({ error: err.message });
-                res.status(201).json({ message: 'User created successfully', id: this.lastID });
-            });
-        }
+        if (this.changes === 0) return res.status(404).json({ error: 'User not found' });
+        res.json({ message: 'User data synced successfully' });
     });
 });
 
 // Start listening
-app.listen(PORT, () => {
-    console.log(`FocusFuel Backend running on http://localhost:${PORT}`);
-    console.log(`Test APi at: http://localhost:${PORT}/api/leaderboard`);
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+    console.log(`FocusFuel Backend running on port ${port}`);
+    console.log(`Frontend served at: http://localhost:${port}`);
 });

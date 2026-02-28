@@ -1,11 +1,12 @@
 document.addEventListener('DOMContentLoaded', () => {
     // ---- State Management ----
-    const API_BASE_URL = 'http://localhost:3000/api';
+    const API_BASE_URL = window.location.origin + '/api';
 
 
     const defaultState = {
         username: '',
         region: 'Global',
+        isAuthenticated: false,
         goalMinutes: 180, // 3 hours
         focusMinutes: 0,
         totalPoints: 0,
@@ -64,7 +65,23 @@ document.addEventListener('DOMContentLoaded', () => {
         btnSaveProfile: document.getElementById('btn-save-profile'),
         // Tracking Elements
         trackingStatus: document.getElementById('tracking-status'),
+        // Auth Elements
+        authView: document.getElementById('view-auth'),
+        authForm: document.getElementById('auth-form'),
+        authTitle: document.getElementById('auth-title'),
+        authSubtitle: document.getElementById('auth-subtitle'),
+        authUsername: document.getElementById('auth-username'),
+        authPassword: document.getElementById('auth-password'),
+        authRegion: document.getElementById('auth-region'),
+        regionGroup: document.getElementById('region-group'),
+        btnAuthSubmit: document.getElementById('btn-auth-submit'),
+        authToggleLink: document.getElementById('auth-toggle-link'),
+        authToggleText: document.getElementById('auth-toggle-text'),
+        btnLogout: document.getElementById('btn-logout'),
+        bottomNav: document.querySelector('.bottom-nav'),
     };
+
+    let isRegisterMode = false;
 
     // ---- Core Functions ----
     function saveState() {
@@ -84,7 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function syncUserData() {
-        if (!state.username) return;
+        if (!state.username || !state.isAuthenticated) return;
 
         try {
             const response = await fetch(`${API_BASE_URL}/users/sync`, {
@@ -92,10 +109,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     username: state.username,
-                    region: state.region,
                     points: state.totalPoints,
                     longestStreak: state.longestStreak,
-                    avatar: 'fa-user-astronaut' // Default for now
+                    daysMet: state.daysMet,
+                    avatar: 'fa-user-astronaut'
                 })
             });
             const data = await response.json();
@@ -143,6 +160,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateUI() {
+        if (!state.isAuthenticated) {
+            els.views.forEach(v => v.classList.remove('active'));
+            els.authView.classList.add('active');
+            els.bottomNav.style.display = 'none';
+            return;
+        }
+
+        els.authView.classList.remove('active');
+        els.bottomNav.style.display = 'flex';
+
         // Headers
         els.headerPoints.innerText = state.totalPoints;
 
@@ -258,9 +285,79 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Auth Event Listeners
+    if (els.authToggleLink) {
+        els.authToggleLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            isRegisterMode = !isRegisterMode;
+            els.authTitle.innerText = isRegisterMode ? 'Create Account' : 'Welcome Back';
+            els.authSubtitle.innerText = isRegisterMode ? 'Join FocusFuel to start tracking.' : 'Login to sync your focus progress.';
+            els.btnAuthSubmit.innerText = isRegisterMode ? 'Register' : 'Login';
+            els.authToggleText.innerText = isRegisterMode ? 'Already have an account?' : "Don't have an account?";
+            els.authToggleLink.innerText = isRegisterMode ? 'Login Now' : 'Register Now';
+            els.regionGroup.style.display = isRegisterMode ? 'block' : 'none';
+        });
+    }
+
+    if (els.authForm) {
+        els.authForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = els.authUsername.value.trim();
+            const password = els.authPassword.value;
+            const region = els.authRegion.value;
+
+            const endpoint = isRegisterMode ? '/auth/register' : '/auth/login';
+            const body = isRegisterMode ? { username, password, region } : { username, password };
+
+            try {
+                const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    if (isRegisterMode) {
+                        showToast('Success', 'Account created! Please login.', 'success');
+                        isRegisterMode = false;
+                        els.authToggleLink.click();
+                    } else {
+                        state.username = data.user.username;
+                        state.region = data.user.region;
+                        state.totalPoints = data.user.total_points;
+                        state.longestStreak = data.user.longest_streak;
+                        state.daysMet = data.user.days_met;
+                        state.isAuthenticated = true;
+                        saveState();
+                        showToast('Welcome', `Glad to see you, ${state.username}!`);
+                        // Switch to dashboard
+                        document.querySelector('[data-target="view-dashboard"]').click();
+                    }
+                } else {
+                    showToast('Auth Error', data.error || 'Something went wrong', 'danger');
+                }
+            } catch (err) {
+                console.error('Auth request failed:', err);
+                showToast('Error', 'Server connection failed', 'danger');
+            }
+        });
+    }
+
+    if (els.btnLogout) {
+        els.btnLogout.addEventListener('click', () => {
+            state.isAuthenticated = false;
+            state.username = '';
+            // We keep goal settings and local points just in case, but primary data is in DB
+            saveState();
+            location.reload(); // Hard reset for safety
+        });
+    }
+
     // Navigation
     els.navItems.forEach(item => {
         item.addEventListener('click', () => {
+            if (!state.isAuthenticated) return;
             const currentItem = Array.from(els.navItems).find(n => n.classList.contains('active'));
             if (currentItem) currentItem.classList.remove('active');
             item.classList.add('active');
@@ -293,6 +390,12 @@ document.addEventListener('DOMContentLoaded', () => {
     els.btnSaveGoal.addEventListener('click', () => {
         const h = parseInt(els.goalHours.value) || 0;
         const m = parseInt(els.goalMinutes.value) || 0;
+
+        if (h > 23 || (h === 23 && m > 59) || (h === 0 && m === 0)) {
+            showToast('Invalid Goal', 'Goal must be between 1 min and 23h 59m', 'danger');
+            return;
+        }
+
         state.goalMinutes = (h * 60) + m;
         saveState();
         showToast('Goal Updated', `Your daily focus target is now ${formatTime(state.goalMinutes)}.`);

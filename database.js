@@ -13,15 +13,31 @@ const db = new sqlite3.Database(dbPath, (err) => {
         db.run(`CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE,
+            password TEXT,
             region TEXT,
             total_points INTEGER DEFAULT 0,
             longest_streak INTEGER DEFAULT 0,
-            avatar TEXT DEFAULT 'fa-user-astronaut'
+            days_met INTEGER DEFAULT 0,
+            avatar TEXT DEFAULT 'fa-user-astronaut',
+            last_login DATETIME
         )`, (err) => {
             if (err) {
                 console.error("Error creating users table", err.message);
             } else {
                 console.log("Users table ready.");
+                // Migration: Add columns if they don't exist (handle cases where table already existed)
+                const columns = [
+                    { name: 'password', type: 'TEXT' },
+                    { name: 'days_met', type: 'INTEGER DEFAULT 0' },
+                    { name: 'last_login', type: 'DATETIME' }
+                ];
+                columns.forEach(col => {
+                    db.run(`ALTER TABLE users ADD COLUMN ${col.name} ${col.type}`, (alterErr) => {
+                        if (alterErr && !alterErr.message.includes('duplicate column name')) {
+                            console.error(`Error migrating column ${col.name}:`, alterErr.message);
+                        }
+                    });
+                });
                 seedDatabase();
             }
         });

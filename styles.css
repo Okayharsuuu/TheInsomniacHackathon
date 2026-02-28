@@ -38,6 +38,54 @@ body {
     background: transparent;
 }
 
+/* ---- Auth View Styles ---- */
+.auth-card {
+    text-align: center;
+    padding: 3rem 2rem;
+    max-width: 400px;
+    margin: 2rem auto;
+}
+
+.logo-large {
+    font-size: 3rem;
+    font-weight: 800;
+    color: var(--primary-color);
+    margin-bottom: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.logo-large i {
+    font-size: 4rem;
+}
+
+.auth-toggle {
+    margin-top: 2rem;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+#auth-toggle-link {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-weight: 600;
+    margin-left: 0.5rem;
+}
+
+#auth-toggle-link:hover {
+    text-decoration: underline;
+}
+
+/* ---- Responsive Adjustments for Auth ---- */
+@media (max-width: 480px) {
+    .auth-card {
+        margin: 1rem;
+        padding: 2rem 1.5rem;
+    }
+}
+
 /* Header */
 .app-header {
     display: flex;
