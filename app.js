@@ -78,10 +78,12 @@ document.addEventListener('DOMContentLoaded', () => {
         authToggleLink: document.getElementById('auth-toggle-link'),
         authToggleText: document.getElementById('auth-toggle-text'),
         btnLogout: document.getElementById('btn-logout'),
+        btnInstallPWA: document.getElementById('btn-install-pwa'),
         bottomNav: document.querySelector('.bottom-nav'),
     };
 
     let isRegisterMode = false;
+    let deferredPrompt;
 
     // ---- Core Functions ----
     function saveState() {
@@ -503,6 +505,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
         updateUI();
     }
+
+    // PWA Install Logic
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        if (els.btnInstallPWA) {
+            els.btnInstallPWA.style.display = 'block';
+        }
+    });
+
+    if (els.btnInstallPWA) {
+        els.btnInstallPWA.addEventListener('click', async () => {
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            console.log(`User response to the install prompt: ${outcome}`);
+            deferredPrompt = null;
+            els.btnInstallPWA.style.display = 'none';
+        });
+    }
+
+    window.addEventListener('appinstalled', () => {
+        console.log('PWA was installed');
+        if (els.btnInstallPWA) {
+            els.btnInstallPWA.style.display = 'none';
+        }
+    });
 
     // Service Worker Registration for PWA
     if ('serviceWorker' in navigator) {
