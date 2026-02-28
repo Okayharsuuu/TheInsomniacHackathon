@@ -62,19 +62,26 @@ document.addEventListener('DOMContentLoaded', () => {
         authUsername: document.getElementById('auth-username'),
         authEmail: document.getElementById('auth-email'),
         authPassword: document.getElementById('auth-password'),
+        authRegion: document.getElementById('auth-region'),
         btnAuthSubmit: document.getElementById('btn-auth-submit'),
         linkToggleAuth: document.getElementById('link-toggle-auth'),
         authToggleText: document.getElementById('auth-toggle-text'),
         nameGroup: document.getElementById('name-group'),
         emailGroup: document.getElementById('email-group'),
+        regionGroup: document.getElementById('region-group'),
         // Layout Elements
         mainHeader: document.getElementById('main-header'),
         mainNav: document.getElementById('main-nav'),
         pointsBadge: document.getElementById('main-points-badge'),
+        regionTabs: document.getElementById('region-tabs'),
+        btnRefreshLeaderboard: document.getElementById('btn-refresh-leaderboard'),
         // Profile Elements
         profDisplayName: document.getElementById('prof-display-name'),
         profDisplayUsername: document.getElementById('prof-display-username'),
-        btnLogout: document.getElementById('btn-logout')
+        btnLogout: document.getElementById('btn-logout'),
+        // Server Status
+        statusDot: document.getElementById('status-dot'),
+        statusText: document.getElementById('status-text')
     };
 
     let deferredPrompt;
@@ -118,18 +125,21 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function fetchLeaderboard() {
+    async function fetchLeaderboard(region = 'Global') {
         if (!els.leaderboardList) return;
         els.leaderboardList.innerHTML = '<div class="loading">Loading leaderboard...</div>';
 
         try {
-            const res = await fetch('/api/leaderboard');
+            const url = new URL('/api/leaderboard', window.location.origin);
+            if (region !== 'Global') url.searchParams.append('region', region);
+
+            const res = await fetch(url);
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
             renderLeaderboard(data);
         } catch (err) {
             console.error('Failed to fetch leaderboard:', err);
-            els.leaderboardList.innerHTML = '<div class="error">Failed to load leaderboard.</div>';
+            els.leaderboardList.innerHTML = `<div class="error">Failed to load leaderboard.</div>`;
         }
     }
 
@@ -179,6 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateUI() {
         if (!state.isAuthenticated) {
+            document.body.classList.add('auth-active');
             els.views.forEach(v => v.classList.remove('active'));
             els.authView.classList.add('active');
             if (els.mainHeader) els.mainHeader.style.display = 'none';
@@ -186,6 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        document.body.classList.remove('auth-active');
         // Show layout elements
         if (els.mainHeader) els.mainHeader.style.display = 'flex';
         if (els.mainNav) els.mainNav.style.display = 'flex';
@@ -262,6 +274,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isRegisterMode) {
             payload.name = els.authName.value.trim();
             payload.email = els.authEmail.value.trim();
+            payload.region = els.authRegion.value;
             if (!payload.name || !payload.username || !payload.email || !payload.password) {
                 return showToast('Error', 'Please fill all fields', 'warning');
             }
@@ -281,7 +294,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-            const data = await res.json();
+
+            let data;
+            try {
+                data = await res.json();
+            } catch (e) {
+                throw new Error('Server returned invalid response. Please ensure you are running the server with "npm start" and not opening the file directly.');
+            }
 
             if (!res.ok) throw new Error(data.error || 'Request failed');
 
@@ -319,6 +338,7 @@ document.addEventListener('DOMContentLoaded', () => {
         els.linkToggleAuth.innerText = isRegisterMode ? 'Login here' : 'Sign up here';
         els.nameGroup.style.display = isRegisterMode ? 'block' : 'none';
         els.emailGroup.style.display = isRegisterMode ? 'block' : 'none';
+        els.regionGroup.style.display = isRegisterMode ? 'block' : 'none';
     }
 
     els.linkToggleAuth.addEventListener('click', (e) => {
@@ -339,9 +359,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (v.id === targetId) v.classList.add('active');
             });
 
-            if (targetId === 'view-leaderboard') fetchLeaderboard();
+            if (targetId === 'view-leaderboard') fetchLeaderboard(currentRegion);
         });
     });
+
+    // Leaderboard Controls
+    if (els.regionTabs) {
+        els.regionTabs.addEventListener('click', (e) => {
+            if (e.target.classList.contains('tab-btn')) {
+                els.regionTabs.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+                e.target.classList.add('active');
+                currentRegion = e.target.getAttribute('data-region');
+                fetchLeaderboard(currentRegion);
+            }
+        });
+    }
+
+    if (els.btnRefreshLeaderboard) {
+        els.btnRefreshLeaderboard.addEventListener('click', () => {
+            fetchLeaderboard(currentRegion);
+        });
+    }
 
     // Focus Tracking
     document.addEventListener('visibilitychange', () => {
@@ -395,8 +433,26 @@ document.addEventListener('DOMContentLoaded', () => {
         await syncUserData();
     }
 
+    async function checkServerConnection() {
+        if (!els.statusDot) return;
+
+        try {
+            const res = await fetch('/api/status');
+            if (res.ok) {
+                els.statusDot.className = 'status-dot online';
+                els.statusText.innerText = 'Connected to FocusFuel Server';
+            } else {
+                throw new Error();
+            }
+        } catch (e) {
+            els.statusDot.className = 'status-dot offline';
+            els.statusText.innerText = 'Server offline - Run "npm start"';
+        }
+    }
+
     // Init
     function init() {
+        checkServerConnection();
         if (state.isAuthenticated) {
             // Restore from background if refreshed
             if (state.lastHiddenAt) {

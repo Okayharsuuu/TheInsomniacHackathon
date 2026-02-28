@@ -29,6 +29,7 @@ const db = new sqlite3.Database(path.join(__dirname, 'focusfuel.db'), (err) => {
                 longest_streak INTEGER DEFAULT 0,
                 days_met INTEGER DEFAULT 0,
                 avatar TEXT DEFAULT 'fa-user-astronaut',
+                region TEXT DEFAULT 'Global',
                 last_login TEXT
             )`);
         });
@@ -39,13 +40,13 @@ const db = new sqlite3.Database(path.join(__dirname, 'focusfuel.db'), (err) => {
 
 // Register
 app.post('/api/register', (req, res) => {
-    const { name, username, email, password } = req.body;
+    const { name, username, email, password, region = 'Global' } = req.body;
     if (!name || !username || !email || !password) {
         return res.status(400).json({ error: 'All fields are required' });
     }
 
-    const query = `INSERT INTO users (name, username, email, password) VALUES (?, ?, ?, ?)`;
-    db.run(query, [name, username, email, password], function (err) {
+    const query = `INSERT INTO users (name, username, email, password, region) VALUES (?, ?, ?, ?, ?)`;
+    db.run(query, [name, username, email, password, region], function (err) {
         if (err) {
             if (err.message.includes('UNIQUE constraint failed')) {
                 return res.status(409).json({ error: 'Username or Email already exists' });
@@ -91,8 +92,18 @@ app.post('/api/sync', (req, res) => {
 
 // Leaderboard
 app.get('/api/leaderboard', (req, res) => {
-    const query = `SELECT name, username, total_points, longest_streak, avatar FROM users ORDER BY total_points DESC LIMIT 50`;
-    db.all(query, [], (err, rows) => {
+    const { region } = req.query;
+    let query = `SELECT name, username, total_points, longest_streak, avatar, region FROM users`;
+    let params = [];
+
+    if (region && region !== 'Global') {
+        query += ` WHERE region = ?`;
+        params.push(region);
+    }
+
+    query += ` ORDER BY total_points DESC LIMIT 50`;
+
+    db.all(query, params, (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
